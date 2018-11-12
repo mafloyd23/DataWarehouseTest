@@ -1,25 +1,49 @@
 USE PERSONDATABASE
+GO
 
 alter table dbo.Person alter column PersonID int NOT NULL;
+GO
+
 alter table dbo.Person add constraint Person_PK PRIMARY KEY (PersonID);
+GO
+
 alter table dbo.Risk alter column PersonID int not null;
+GO
+
 alter table dbo.Risk add CONSTRAINT FK_Risk_Person FOREIGN KEY (PersonID) REFERENCES Person (PersonID);
+GO
+
 create index IX1 on dbo.Risk(PersonID);
+GO
+
 create index IX1 on dbo.Person(DATEOFBIRTH);
+GO
+
 update Person
 set sex = case sex 
     when 'Female' then 'F'
     when 'Male' then 'M'
     else sex
 end;
+GO
 
 ALTER TABLE Person ADD CONSTRAINT sex_constraint CHECK (Sex = 'F' OR Sex = 'M');
+GO
 
 alter table dbo.Person alter column sex varchar(1);
+GO
+
 alter table dbo.Person add FirstName varchar(50);
+GO
+
 alter table dbo.Person add LastName varchar(50);
+GO
+
 alter table dbo.Person alter column IsActive int;
+GO
+
 alter table dbo.Person add constraint IsActiveDefault default 0 for IsActive;
+GO
 
 /*********************
 Hello! 
@@ -50,6 +74,7 @@ select a.PersonName,
     ) as RiskLevel
 from Person a
 order by PersonName;
+GO
 
 --Option 2
 select a.PersonName, b.RiskLevel
@@ -64,6 +89,7 @@ from Person a
     on a.PersonID = b.PersonID
 where isnull(b.rank, 1) = 1
 order by a.PersonName;
+GO
 
 /**********************
 
@@ -92,6 +118,7 @@ from Person a
             from Person
         ) b
         on a.PersonID = b.PersonID;
+GO
 
 update dbo.Person
 set FirstName = substring(ltrim(rtrim(names.FullName)), 1, charindex(' ', ltrim(rtrim(names.FullName)))),
@@ -116,6 +143,7 @@ from dbo.Person P
 					on a.PersonID = b.PersonID
 		) names
 			on P.PersonID = names.PersonID;
+GO
 
 /**********************
 
@@ -150,6 +178,7 @@ from Person a
     on a.PersonID = b.PersonID
 group by a.PersonName
 order by a.PersonName;
+GO
 
 -- I understand there is hardcoding present.  This seems reasonable for an extremely limited set of choices
 -- such as Gold, Silver, Bronze.  Obviously, this value could be in a column somewhere so it could be dynamic
@@ -177,12 +206,12 @@ INNER JOIN DBO.Risk R
 WHERE DATEDIFF(dd, P.DATEOFBIRTH, getdate()) / 365.25 > 55
     and P.ISACTIVE = 1
 order by P.PersonName, R.RiskLevel;
+GO
 
 /* I know there are much more precise ways to get to the age */
 
 ---------Answer B--------------------
-/* Unless I am missing the obvious, which I might very well be, I submit A *
-/* for both A and B */
+/* Unless I am missing the obvious, which I might very well be, I submit A for both A and B */
 
 /**********************
 
@@ -285,6 +314,8 @@ C. Assuming these tables will grow very large, what other database tools/objects
 efficient when queried?
 Full text index catalogs
 
+I have also submitted a script of the PersonDatabase after all of the changes I made to the schema.
+
 
 **********************/
 
@@ -306,6 +337,7 @@ FROM
         from Risk
     ) a
 group by a.PersonID, a.AttributedPayer, a.AverageRisk;
+GO
 
 /**********************
 
@@ -354,6 +386,7 @@ BEGIN
 
     select @beginDate = dateadd(dd, 1, @beginDate)
 end;
+GO
 
 /**********************
 
@@ -371,8 +404,55 @@ be the last day of that month. Use the dbo.Dates table if helpful.
 
 **********************/
 
+alter table Contracts alter column PersonID int not null;
+GO
 
+alter table Contracts alter column ContractStartDate datetime not null;
+GO
 
+alter table Contracts alter column ContractEndDate datetime not null;
+GO
 
+/************************************************************/
+/* I am not ashamed to admit, I am stumped on this one      */
+/* Below are just some things I was noodling on             */
+/************************************************************/
+select c.PersonID, c.ContractStartDate, c.ContractEndDate
+from Contracts c
+	join 
+	(
+		select PersonID, 
+			ContractStartDate, 
+			ContractEndDate, 
+			lag(ContractEndDate, 1, 0) over (partition by PersonID order by ContractStartDate, ContractEndDate) as LastContractEndDate,
+			lead(ContractStartDate, 1, 0) over (partition by PersonID Order by ContractStartDate, ContractEndDate) as NextContractStartDate
+		from dbo.Contracts
+	) foo
+	on c.PersonID = foo.PersonID
+		and c.ContractStartDate = foo.ContractStartDate
+where foo.PersonID = 1
+	and foo.ContractStartDate > foo.LastContractEndDate
+order by c.PersonID, c.ContractStartDate, c.ContractEndDate;
 
+select c.*, d.*
+from Contracts c
+	join Dates d
+		on c.ContractStartDate = d.DateValue
+order by c.PersonID, c.ContractStartDate, c.ContractEndDate;
 
+select c.PersonID, c.ContractStartDate, 
+	dateadd(dd, (datepart(day, c.ContractStartDate)- 1) * -1, c.ContractStartDate) as FirstDayOfMonth,
+	c.ContractEndDate,
+	cast(EOMONTH(c.ContractEndDate) as datetime) as LastDayOfMonth,
+	lead(ContractStartDate, 1) over (partition by PersonID order by ContractStartDate, ContractEndDate) as NextContractStartDate,
+	dateadd(dd, datepart(day, lead(ContractStartDate, 1) over (partition by PersonID order by ContractStartDate, ContractEndDate)-1) * -1, lead(ContractStartDate, 1) over (partition by PersonID order by ContractStartDate, ContractEndDate)) as FirstOfMonthNextContractDate
+from Contracts c
+	join Dates d
+		on c.ContractStartDate = d.DateValue
+order by c.PersonID, c.ContractStartDate, c.ContractEndDate;
+
+select c.ContractEndDate
+from Contracts c
+	left join Dates d
+		on c.ContractEndDate = d.DateValue
+where d.DateValue is null;
